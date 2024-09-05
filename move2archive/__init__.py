@@ -21,7 +21,7 @@ import readline  # for raw_input() reading from stdin
 # better performance if ReEx is pre-compiled:
 
 # search for: «YYYY-MM-DD»
-DATESTAMP_REGEX = re.compile("\d\d\d\d-[01]\d-[0123]\d")
+DATESTAMP_REGEX = re.compile(r"\d\d\d\d-[01]\d-[0123]\d")
 
 ## this setting is highly specific for the current user and most probably needs adaptation:
 if os.path.isdir(os.path.join(os.path.expanduser("~"), "archive", "events_memories")):
