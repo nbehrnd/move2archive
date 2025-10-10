@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-PROG_VERSION = u"Time-stamp: <2025-10-10 15:59:40 vk>"
+PROG_VERSION = u"Time-stamp: <2025-10-10 17:14:06 vk>"
 
 import os
 import sys
@@ -22,6 +22,23 @@ import readline  # for raw_input() reading from stdin
 
 # search for: «YYYY-MM-DD»
 DATESTAMP_REGEX = re.compile(r"\d\d\d\d-[01]\d-[0123]\d")
+
+# Directories to ignore when looking for non-ISO subdirectories
+# These are never valid targets for filing
+IGNORE_DIRECTORIES = [
+    '.git',           # Git repository
+    '.svn',           # Subversion repository
+    '.hg',            # Mercurial repository
+    '.stfolder',      # Syncthing folder
+    '.stversions',    # Syncthing versions
+    'tagtrees',       # Tag trees directory
+    '__pycache__',    # Python cache
+    '.DS_Store',      # macOS directory metadata
+    'Thumbs.db',      # Windows thumbnail cache
+    '.Trash',         # Trash folder
+    '.recycle',       # Recycle bin
+    'lost+found',     # Linux/Unix lost+found
+]
 
 ## this setting is highly specific for the current user and most probably needs adaptation:
 if os.path.isdir(os.path.join(os.path.expanduser("~"), "archive", "events_memories")):
@@ -389,7 +406,7 @@ def get_potential_target_directories_extended(args, archivepath, days_range):
     """Enhanced version that returns three lists of directory suggestions:
     1. Exact datestamp matches (original functionality)
     2. Folders within ±days_range of the file's datestamp
-    3. All non-datestamp folders from the year archive
+    3. All non-datestamp folders from the year archive (excluding ignored directories)
     
     Returns a tuple: (exact_matches, near_date_matches, non_datestamp_dirs)
     """
@@ -428,6 +445,11 @@ def get_potential_target_directories_extended(args, archivepath, days_range):
     
     # Process each directory
     for directory in all_dirs:
+        # Skip ignored directories
+        if directory in IGNORE_DIRECTORIES:
+            logging.debug("Ignoring directory: %s (in ignore list)" % directory)
+            continue
+            
         dir_date = extract_date(directory)
         
         if dir_date:
@@ -443,7 +465,7 @@ def get_potential_target_directories_extended(args, archivepath, days_range):
                 logging.debug("Found near match (%d days diff): %s" % (date_diff, directory))
                 near_date_matches.append(directory)
         else:
-            # No datestamp in directory name
+            # No datestamp in directory name (and not in ignore list)
             logging.debug("Found non-datestamp directory: %s" % directory)
             non_datestamp_dirs.append(directory)
     
@@ -469,14 +491,48 @@ def get_potential_target_directories(args, archivepath):
 
 
 def longestSubstringFinder(string1, string2):
+    """
+    Returns the longest common substring starting from the first character
+    of both input strings.
+    
+    Args:
+        string1 (str): First input string.
+        string2 (str): Second input string.
+        
+    Returns:
+        str: The longest common prefix of the two strings.
+    """
+    # Find the minimum length to avoid index errors
+    min_len = min(len(string1), len(string2))
+    
+    # Iterate through each character up to the minimum length
+    for i in range(min_len):
+        if string1[i] != string2[i]:
+            # Return the substring up to the point of mismatch
+            return string1[:i]
+    
+    # If we've gone through all characters without a mismatch,
+    # the common substring is the shorter of the two strings
+    return string1[:min_len]
+
+
+def BUGGY_longestSubstringFinder(string1, string2):
     ## this is from: https://stackoverflow.com/a/18717762
     ## print(longestSubstringFinder("apple pie available", "apple pies")) ## apple pie
     ## print(longestSubstringFinder("apples", "appleses")) ## apples
     ## print(longestSubstringFinder("bapples", "cappleses")) ## apples
+
+    ## 2025-10-10: this function has an issue with:
+    ## FIXXME: debug issue and think of re-using this instead of the other function.
+    ## longestSubstringFinder(string1='Das ist ein Event - foo bar baz', string2='Das ist ein Event - foo bar')
+    ## where it returns no common string.
+    
     '''Its called Longest Common Substring problem. Here I present a
     simple, easy to understand but inefficient solution. It will take
     a long time to produce correct output for large strings, as the
-    complexity of this algorithm is O(N^2).''' 
+    complexity of this algorithm is O(N^2).'''
+
+    logging.debug(f"longestSubstringFinder({string1=}, {string2=})")
     answer = ""
     len1, len2 = len(string1), len(string2)
     for i in range(len1):
@@ -484,9 +540,12 @@ def longestSubstringFinder(string1, string2):
         for j in range(len2):
             if (i + j < len1 and string1[i + j] == string2[j]):
                 match += string2[j]
+                #logging.debug(f"longestSubstringFinder 1 {match=}")
             else:
                 if (len(match) > len(answer)): answer = match
                 match = ""
+                #logging.debug(f"longestSubstringFinder 2 {match=}")
+    #logging.debug(f"longestSubstringFinder {answer=} {match=}")
     return answer
 
 
@@ -507,6 +566,8 @@ def guess_new_directory_basename(filename1, filename2):
     results in: "Wedding of Paula and John"
     """
 
+    logging.debug(f"guess_new_directory_basename({filename1=}, {filename2=})")
+    
     # omit path and filename extensions:
     file1 = os.path.basename(os.path.splitext(filename1)[0])
     file2 = os.path.basename(os.path.splitext(filename2)[0])
@@ -534,7 +595,11 @@ def print_potential_target_directories_extended(exact_matches, near_date_matches
                                                 days_range):
     """Enhanced version that prints all three categories of directory suggestions."""
     
+    logging.debug(f"print_potential_target_directories_extended({exact_matches=}, {near_date_matches=}, {non_datestamp_dirs=}, {new_dir_basename_guess=}, {days_range=})")
+    
     total_suggestions = len(exact_matches) + len(near_date_matches) + len(non_datestamp_dirs)
+    if new_dir_basename_guess:
+        total_suggestions += 1
     
     if total_suggestions > 0:
         print('\n Directory suggestions (enter number to select):')
@@ -552,15 +617,7 @@ def print_potential_target_directories_extended(exact_matches, near_date_matches
     if near_date_matches:
         print('\n  === Within ±%d days ===' % days_range)
         for directory in near_date_matches:
-            # Calculate and show the date difference
-            dir_date = extract_date(directory)
-            file_date = extract_date(exact_matches[0]) if exact_matches else None
-            if file_date and dir_date:
-                diff = (dir_date - file_date).days
-                diff_str = " (%+d days)" % diff
-            else:
-                diff_str = ""
-            print('  [%d]  %s%s' % (index, directory, diff_str))
+            print('  [%d]  %s' % (index, directory))
             index += 1
     
     # Print non-datestamp directories
@@ -663,9 +720,17 @@ def main():
         # Combine all directory suggestions for easier selection
         all_directory_suggestions = exact_matches + near_date_matches + non_datestamp_dirs
         
+        # Analyze filenames to suggest a new directory name if multiple files provided
         new_dir_basename_guess = False
         if len(args) > 1:
             new_dir_basename_guess = guess_new_directory_basename(args[0], args[1])
+            if new_dir_basename_guess:
+                # Extract the date from the first file to prepend to the suggestion
+                first_file_date = extract_date(args[0])
+                if first_file_date and not extract_date(new_dir_basename_guess):
+                    # If the guess doesn't already have a date, add it
+                    new_dir_basename_guess = first_file_date.isoformat()[:10] + " " + new_dir_basename_guess
+                logging.debug("Suggested new directory from filename analysis: %s" % new_dir_basename_guess)
         
         # Calculate total number of suggestions
         number_of_suggestions = len(all_directory_suggestions)
