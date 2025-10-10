@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-PROG_VERSION = u"Time-stamp: <2024-12-25 16:03:41 vk>"
+PROG_VERSION = u"Time-stamp: <2025-10-10 15:59:40 vk>"
 
 import os
 import sys
 import re
 import logging
 from optparse import OptionParser
-from datetime import datetime
+from datetime import datetime, timedelta
 import shutil
 import fnmatch  # for searching matching directories
 import readline  # for raw_input() reading from stdin
@@ -30,6 +30,9 @@ if os.path.isdir(os.path.join(os.path.expanduser("~"), "archive", "events_memori
 else:
     ## this is the more generic choice:
     DEFAULT_ARCHIVE_PATH = os.path.join(os.path.expanduser("~"), "archive")
+
+# Configurable number of days to look before/after for date suggestions
+DAYS_RANGE_FOR_SUGGESTIONS = 2  # Will look for folders ±2 days from the file's date
 
 PAUSEONEXITTEXT = "    press <Enter> to quit"
 PROG_VERSION_DATE = PROG_VERSION[13:23]
@@ -93,6 +96,9 @@ parser.add_option("-a", "--append", dest="append", action="store_true",
 parser.add_option("--archivepath", dest="archivepath",
                   help='overwrite the default archive base directory which contains one ' +
                        'subdirectory per year. DEFAULT is currently "%s" (which can be modified in "%s")' % (DEFAULT_ARCHIVE_PATH, sys.argv[0]), metavar="DIR")
+
+parser.add_option("--days-range", dest="days_range", type="int", default=DAYS_RANGE_FOR_SUGGESTIONS,
+                  help="Number of days before/after file datestamp to look for matching folders (default: %d)" % DAYS_RANGE_FOR_SUGGESTIONS)
 
 # parser.add_option("-b", "--batch", dest="batchmode", action="store_true",
 #                   help="Do not ask for user interaction (at the end of the process)")
@@ -379,19 +385,23 @@ def generate_absolute_target_dir(targetdir, args, archivepath):
     return make_sure_targetdir_exists(archivepath, targetdirname)
 
 
-def get_potential_target_directories(args, archivepath):
-    """takes first argument, extracts its date-stamp, looks for existing
-    directories starting with the time-stamp (or similar) and returns the
-    list of the directories."""
-
+def get_potential_target_directories_extended(args, archivepath, days_range):
+    """Enhanced version that returns three lists of directory suggestions:
+    1. Exact datestamp matches (original functionality)
+    2. Folders within ±days_range of the file's datestamp
+    3. All non-datestamp folders from the year archive
+    
+    Returns a tuple: (exact_matches, near_date_matches, non_datestamp_dirs)
+    """
+    
     firstfile = args[0]
-
+    
     if not os.path.exists(firstfile):
         error_exit(11, 'File/Folder "%s" does not exist! Aborting.' % firstfile)
-
+    
     firstfile = os.path.basename(firstfile)
     assert_each_item_has_datestamp([firstfile])
-
+    
     item_date = extract_date(firstfile)
     yearfolder = os.path.join(archivepath, str(item_date.year))
     if not os.path.exists(yearfolder):
@@ -401,20 +411,61 @@ def get_potential_target_directories(args, archivepath):
         except IOError:
             print('The creation of new folder "%s" failed.' % new_year)
             sys.exit()
-
-    # existing yearfolder found; looking for matching subfolders:
-    logging.debug("looking for potential existing target folders for file \"%s\" in folder \"%s\"" % (firstfile, yearfolder))
-    datestamp = firstfile[0:10]
-    pattern = datestamp + '*'
-    directory_suggestions = []
-
+    
+    # Initialize result lists
+    exact_matches = []
+    near_date_matches = []
+    non_datestamp_dirs = []
+    
+    # Get all directories in the year folder
+    all_dirs = []
     for root, dirs, files in os.walk(yearfolder):
-        for directory in fnmatch.filter(dirs, pattern):
-            logging.debug("found matching folder \"%s\"" % (directory))
-            directory_suggestions.append(directory)
-    logging.debug("found %i potential directory suggestions" % (len(directory_suggestions)))
+        if root == yearfolder:  # Only look at direct subdirectories
+            all_dirs = dirs
+            break
+    
+    logging.debug("Found %d total directories in year folder %s" % (len(all_dirs), yearfolder))
+    
+    # Process each directory
+    for directory in all_dirs:
+        dir_date = extract_date(directory)
+        
+        if dir_date:
+            # Directory has a datestamp
+            date_diff = abs((dir_date - item_date).days)
+            
+            if date_diff == 0:
+                # Exact match
+                logging.debug("Found exact match: %s" % directory)
+                exact_matches.append(directory)
+            elif date_diff <= days_range:
+                # Within range
+                logging.debug("Found near match (%d days diff): %s" % (date_diff, directory))
+                near_date_matches.append(directory)
+        else:
+            # No datestamp in directory name
+            logging.debug("Found non-datestamp directory: %s" % directory)
+            non_datestamp_dirs.append(directory)
+    
+    # Sort the near_date_matches by date proximity to the file's date
+    if near_date_matches:
+        near_date_matches.sort(key=lambda d: abs((extract_date(d) - item_date).days))
+    
+    # Sort non-datestamp directories alphabetically
+    non_datestamp_dirs.sort()
+    
+    logging.debug("Summary: %d exact, %d near (±%d days), %d non-datestamp" % 
+                  (len(exact_matches), len(near_date_matches), days_range, len(non_datestamp_dirs)))
+    
+    return (exact_matches, near_date_matches, non_datestamp_dirs)
 
-    return directory_suggestions
+
+def get_potential_target_directories(args, archivepath):
+    """Original function maintained for backward compatibility.
+    Now calls the extended version and returns only exact matches."""
+    
+    exact_matches, _, _ = get_potential_target_directories_extended(args, archivepath, 0)
+    return exact_matches
 
 
 def longestSubstringFinder(string1, string2):
@@ -478,9 +529,60 @@ def guess_new_directory_basename(filename1, filename2):
         return None    
 
     
-def print_potential_target_directories(directory_suggestions, new_dir_basename_guess):
-    """prints list of potential target directories with their shortcuts."""
+def print_potential_target_directories_extended(exact_matches, near_date_matches, 
+                                                non_datestamp_dirs, new_dir_basename_guess,
+                                                days_range):
+    """Enhanced version that prints all three categories of directory suggestions."""
+    
+    total_suggestions = len(exact_matches) + len(near_date_matches) + len(non_datestamp_dirs)
+    
+    if total_suggestions > 0:
+        print('\n Directory suggestions (enter number to select):')
+        
+    index = 1  # caution: for usability purposes, we do not start with 0 here!
+    
+    # Print exact matches
+    if exact_matches:
+        print('\n  === Exact date matches ===')
+        for directory in exact_matches:
+            print('  [%d]  %s' % (index, directory))
+            index += 1
+    
+    # Print near date matches
+    if near_date_matches:
+        print('\n  === Within ±%d days ===' % days_range)
+        for directory in near_date_matches:
+            # Calculate and show the date difference
+            dir_date = extract_date(directory)
+            file_date = extract_date(exact_matches[0]) if exact_matches else None
+            if file_date and dir_date:
+                diff = (dir_date - file_date).days
+                diff_str = " (%+d days)" % diff
+            else:
+                diff_str = ""
+            print('  [%d]  %s%s' % (index, directory, diff_str))
+            index += 1
+    
+    # Print non-datestamp directories
+    if non_datestamp_dirs:
+        print('\n  === Other folders (no datestamp) ===')
+        for directory in non_datestamp_dirs:
+            print('  [%d]  %s' % (index, directory))
+            index += 1
+    
+    # Print new directory suggestion
+    if new_dir_basename_guess:
+        print('\n  === New directory ===')
+        print('  [%d]  CREATE: %s' % (index, new_dir_basename_guess))
+    
+    print('\n')
+    
+    return total_suggestions
 
+
+def print_potential_target_directories(directory_suggestions, new_dir_basename_guess):
+    """Original function maintained for backward compatibility."""
+    
     number_of_suggestions = len(directory_suggestions)
 
     if number_of_suggestions > 1:
@@ -554,18 +656,26 @@ def main():
         targetdirname = generate_absolute_target_dir(options.targetdir, args, archivepath)
     elif not options.batchmode:
 
-        directory_suggestions = get_potential_target_directories(args, archivepath)
+        # Get extended directory suggestions
+        exact_matches, near_date_matches, non_datestamp_dirs = \
+            get_potential_target_directories_extended(args, archivepath, options.days_range)
+        
+        # Combine all directory suggestions for easier selection
+        all_directory_suggestions = exact_matches + near_date_matches + non_datestamp_dirs
+        
         new_dir_basename_guess = False
         if len(args) > 1:
             new_dir_basename_guess = guess_new_directory_basename(args[0], args[1])
-            if new_dir_basename_guess:
-                number_of_suggestions = len(directory_suggestions) + 1
-            else:
-                number_of_suggestions = len(directory_suggestions)
-        else:
-            number_of_suggestions = len(directory_suggestions)
+        
+        # Calculate total number of suggestions
+        number_of_suggestions = len(all_directory_suggestions)
+        if new_dir_basename_guess:
+            number_of_suggestions += 1
+        
         if number_of_suggestions > 0:
-            print_potential_target_directories(directory_suggestions, new_dir_basename_guess)
+            print_potential_target_directories_extended(exact_matches, near_date_matches,
+                                                        non_datestamp_dirs, new_dir_basename_guess,
+                                                        options.days_range)
 
         # parse file names for completion:
         vocabulary = locate_and_parse_controlled_vocabulary()
@@ -611,11 +721,15 @@ def main():
                     global user_selected_suggested_directory
                     user_selected_suggested_directory = True
                     if targetdirint == number_of_suggestions and new_dir_basename_guess:
+                        # User selected the "create new directory" option
                         targetdirname = generate_absolute_target_dir(new_dir_basename_guess, args, archivepath)
                     else:
-                        targetdirname = directory_suggestions[targetdirint - 1]  # -1 fixes that we start from 1 instead of 0
-                        targetdirname = generate_absolute_target_dir(targetdirname, args, archivepath)
-                    logging.debug("user selected existing directory \"%s\"" % (targetdirname))
+                        # User selected an existing directory from the combined list
+                        selected_dir = all_directory_suggestions[targetdirint - 1]  # -1 fixes that we start from 1 instead of 0
+                        # For existing directories, use them as-is without modification
+                        year = get_year_from_itemname(args[0])  # Get year from first file
+                        targetdirname = os.path.join(archivepath, str(year), selected_dir)
+                        logging.debug("user selected existing directory \"%s\"" % (targetdirname))
                 else:
                     # if number is not in range of suggestions, use it as folder name like below:
                     targetdirname = generate_absolute_target_dir(targetdirname, args, archivepath)
