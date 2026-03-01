@@ -1,9 +1,50 @@
 [project]
 name = "m2a"
-version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
+version = "2026.03.01.1"
+description = "This script moves items (files or directories) containing ISO datestamps like YYYY-MM-DD into a directory stucture for the corresponding year."
+
+license = "GPL-3.0-or-later"
+readme = { file = "README.org", content-type = "text/plain" }
+keywords = ["file mangement", "filetags", "PIM"]
+
+authors = [
+    { name = "Karl Voit", email = "tools@Karl-Voit.at" },
+]
+
+classifiers = [
+    "Programming Language :: Python :: 3 :: Only",
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: OS Independent",
+]
+
 requires-python = ">=3.13"
 dependencies = [
     "pyreadline3>=3.5.4",
 ]
+
+
+[project.urls]
+Homepage = "https://github.com/novoid/move2archive"
+
+
+[project.scripts]
+guessfilename = "move2archive:main"
+
+[[tool.uv.index]]
+name = "m2a"
+url = "https://test.pypi.org/simple/"
+publish-url = "https://test.pypi.org/legacy/"
+explicit = true
+
+[tool.setuptools.packages.find]
+include = ["move2archive*"]
+
+[build-system]
+requires = ["setuptools>=78.1.0", "wheel>=0.45.1"]
+build-backend = "setuptools.build_meta"
+
+[tool.mypy]
+strict = true
+ignore_missing_imports = true

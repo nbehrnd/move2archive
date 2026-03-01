@@ -18,3 +18,4 @@ uv.lock
 2025*
 move2archive/__pycache__/
 test_move2archive*
+m2a.egg-info/
