@@ -13,3 +13,8 @@ update_pip.sh
 build/
 move2archive.egg-info/
 /venv/
+.python-version
+uv.lock
+2025*
+move2archive/__pycache__/
+test_move2archive*
