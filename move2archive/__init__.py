@@ -49,7 +49,7 @@ else:
     DEFAULT_ARCHIVE_PATH = os.path.join(os.path.expanduser("~"), "archive")
 
 # Configurable number of days to look before/after for date suggestions
-DAYS_RANGE_FOR_SUGGESTIONS = 2  # Will look for folders ±2 days from the file's date
+DAYS_RANGE_FOR_SUGGESTIONS = 7  # Will look for folders ± those days from the file's date
 
 PAUSEONEXITTEXT = "    press <Enter> to quit"
 PROG_VERSION_DATE = PROG_VERSION[13:23]
